@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+  agent:
+    image: bcgovimages/aries-cloudagent:py36-1.16-1_0.7.5-rc0
+    command: [
+      "start",
+      "--endpoint", "http://172.17.0.1:8030",
+      "--genesis-url", "http://172.17.0.1:9000/genesis",
+      "--inbound-transport", "http", "0.0.0.0", "8030",
+      "--outbound-transport", "http",
+      "--admin", "0.0.0.0", "8031",
+      "--admin-api-key", "super-secret-key",
+      "--webhook-url", "http://172.17.0.1:8032/webhooks",
+      "--auto-accept-invites",
+    ]
+    ports:
+      - "8030:8030"
+      - "8031:8031"
