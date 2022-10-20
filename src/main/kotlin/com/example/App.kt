@@ -1,5 +1,9 @@
 package com.example
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import io.javalin.Javalin
 import kong.unirest.HttpRequestSummary
 import kong.unirest.HttpResponse
@@ -11,6 +15,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 private val logger: Logger = LoggerFactory.getLogger("main")
+private val mapper: ObjectMapper = jacksonObjectMapper()
 
 private var lastConnectionId: String? = null
 
@@ -27,9 +32,11 @@ fun main() {
 fun startWebhookServer(): Javalin = Javalin.create()
     .post("/webhooks/topic/{topic}") { ctx ->
         val topic = ctx.pathParam("topic")
-        val event = ctx.body()
+        val event: ObjectNode = mapper.readValue(ctx.body())
         logger.info("Event $topic: $event")
-        // TODO: receive message
+        when (topic) {
+            "basicmessages" -> logger.info("Received message: ${event["content"]}")
+        }
         // TODO: handle issued credential
         // TODO: handle proof request
     }
@@ -56,13 +63,13 @@ fun createAgentClient(): UnirestInstance {
 
 fun cliLoop(client: UnirestInstance) {
     while (true) {
-        println(
+        print(
             """
             
             (3) Send Message
             (4) Input New Invitation
             (X) Exit?
-            [3/4/X]
+            [3/4/X] 
         """.trimIndent()
         )
         when (readLine()) {
