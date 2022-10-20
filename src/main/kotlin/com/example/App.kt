@@ -1,14 +1,21 @@
 package com.example
 
+import com.typesafe.config.Config
+import com.typesafe.config.ConfigFactory
 import io.javalin.Javalin
+
+object AppConfig {
+    private val conf: Config = ConfigFactory.load()
+
+    val port: Int = conf.getInt("server.port")
+}
 
 fun main() {
     val server = Javalin.create()
         .post("/webhooks/topic/{topic}/") { ctx ->
             ctx.result("Handling ${ctx.pathParam("topic")}...")
         }
-        // TODO: use conf
-        .start(8032)
+        .start(AppConfig.port)
 
     while (true) {
         println(
