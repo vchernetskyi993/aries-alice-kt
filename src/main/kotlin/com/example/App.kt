@@ -7,6 +7,12 @@ import kong.unirest.Interceptor
 import kong.unirest.MimeTypes
 import kong.unirest.Unirest
 import kong.unirest.UnirestInstance
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+
+private val logger: Logger = LoggerFactory.getLogger("main")
+
+private var lastConnectionId: String? = null
 
 fun main() {
     val server = startWebhookServer()
@@ -20,7 +26,12 @@ fun main() {
 
 fun startWebhookServer(): Javalin = Javalin.create()
     .post("/webhooks/topic/{topic}") { ctx ->
-        println("Handling ${ctx.pathParam("topic")}...")
+        val topic = ctx.pathParam("topic")
+        val event = ctx.body()
+        logger.info("Event $topic: $event")
+        // TODO: receive message
+        // TODO: handle issued credential
+        // TODO: handle proof request
     }
     .start(ServerConfig.port)
 
@@ -36,21 +47,11 @@ fun createAgentClient(): UnirestInstance {
                 config: kong.unirest.Config?
             ) {
                 response?.ifFailure {
-                    println("Error response: ${it.status} - ${it.body}")
+                    logger.error("Error response: ${it.status} - ${it.body}")
                 }
             }
         })
     return instance
-}
-
-fun receiveInvitation(client: UnirestInstance) {
-    print("Input invitation: ")
-    val invitation = readLine()
-    client
-        .post("/out-of-band/receive-invitation")
-        .contentType(MimeTypes.JSON)
-        .body(invitation)
-        .asEmpty()
 }
 
 fun cliLoop(client: UnirestInstance) {
@@ -65,10 +66,36 @@ fun cliLoop(client: UnirestInstance) {
         """.trimIndent()
         )
         when (readLine()) {
-            "3" -> println("Sending message...")
+            "3" -> sendMessage(client)
             "4" -> receiveInvitation(client)
             "x", "X" -> break
             else -> println("Invalid input.")
         }
     }
 }
+
+fun sendMessage(client: UnirestInstance) {
+    if (lastConnectionId == null) {
+        print("To send messages you need to connect to other agent first.")
+        return
+    }
+    print("Enter message: ")
+    val message = readLine()
+    client.post("/connections/${lastConnectionId}/send-message")
+        .body(mapOf("content" to message))
+        .asEmpty()
+}
+
+fun receiveInvitation(client: UnirestInstance) {
+    print("Input invitation: ")
+    val invitation = readLine()
+    lastConnectionId = client
+        .post("/out-of-band/receive-invitation")
+        .contentType(MimeTypes.JSON)
+        .body(invitation)
+        .asJson()
+        .body
+        .`object`
+        .getString("connection_id")
+}
+
