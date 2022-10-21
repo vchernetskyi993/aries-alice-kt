@@ -9,12 +9,10 @@ in two separate processes (i.e. they are started separately, see usage below).
 
 ## Usage
 
-1. Build `./gradlew installDist`.
+1. Start agent `docker compose up`.
 
-2. Start framework `docker compose up`.
+2. Build controller `./gradlew installDist`.
 
 3. Start controller `./build/install/alice-kt/bin/alice-kt`.
 
-4. Input faber invitation once prompted.
-
-5. Use the same way as the original `alice.py`!
+4. Use the same way as the original `alice.py`!

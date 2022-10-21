@@ -11,6 +11,7 @@ import kong.unirest.Interceptor
 import kong.unirest.MimeTypes
 import kong.unirest.Unirest
 import kong.unirest.UnirestInstance
+import kong.unirest.json.JSONObject
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
@@ -20,8 +21,8 @@ private val mapper: ObjectMapper = jacksonObjectMapper()
 private var lastConnectionId: String? = null
 
 fun main() {
-    val server = startWebhookServer()
     val client = createAgentClient()
+    val server = startWebhookServer(client)
 
     cliLoop(client)
 
@@ -29,20 +30,83 @@ fun main() {
     client.close()
 }
 
-fun startWebhookServer(): Javalin = Javalin.create()
+private fun startWebhookServer(client: UnirestInstance): Javalin = Javalin.create()
     .post("/webhooks/topic/{topic}") { ctx ->
         val topic = ctx.pathParam("topic")
         val event: ObjectNode = mapper.readValue(ctx.body())
         logger.info("Event $topic: $event")
         when (topic) {
             "basicmessages" -> logger.info("Received message: ${event["content"]}")
+            "issue_credential_v2_0" -> {
+                val credExId = event["cred_ex_id"].asText()
+                when (event["state"].asText()) {
+                    "offer-received" -> client
+                        .post("/issue-credential-2.0/records/${credExId}/send-request")
+                        .asEmpty()
+                }
+            }
+
+            "present_proof_v2_0" -> {
+                when (event["state"].asText()) {
+                    "request-received" -> {
+                        val presExId = event["pres_ex_id"].asText()
+                        val credentialsByReferent = credentialsByReferent(client, presExId)
+
+                        val presentRequest = event["by_format"]["pres_request"]["indy"]
+
+                        val predicates = presentRequest["requested_predicates"].fieldNames()
+                            .asSequence()
+                            .filter { it in credentialsByReferent }
+                            .map {
+                                it to mapOf(
+                                    "cred_id" to credentialsByReferent[it]!!
+                                        .getJSONObject("cred_info")
+                                        .get("referent")
+                                )
+                            }
+                            .toMap()
+
+                        val revealed = presentRequest["requested_attributes"].fieldNames()
+                            .asSequence()
+                            .filter { it in credentialsByReferent }
+                            .map {
+                                it to mapOf(
+                                    "cred_id" to credentialsByReferent[it]!!
+                                        .getJSONObject("cred_info")
+                                        .get("referent"),
+                                    "revealed" to true,
+                                )
+                            }
+                            .toMap()
+
+                        val selfAttested = presentRequest["requested_attributes"].fieldNames()
+                            .asSequence()
+                            .filter { it !in credentialsByReferent }
+                            .associateWith { "my self-attested value" }
+
+                        val request = mapOf(
+                            "indy" to mapOf(
+                                "requested_predicates" to predicates,
+                                "requested_attributes" to revealed,
+                                "self_attested_attributes" to selfAttested,
+                            )
+                        )
+
+                        logger.info("Sending presentation: $request")
+
+                        client
+                            .post("/present-proof-2.0/records/${presExId}/send-presentation")
+                            .contentType(MimeTypes.JSON)
+                            .body(request)
+                            .asEmpty()
+                    }
+                }
+            }
         }
-        // TODO: handle issued credential
-        // TODO: handle proof request
     }
     .start(ServerConfig.port)
 
-fun createAgentClient(): UnirestInstance {
+private fun createAgentClient(): UnirestInstance {
     val instance = Unirest.spawnInstance()
     instance.config()
         .defaultBaseUrl(AgentConfig.url)
@@ -61,7 +125,7 @@ fun createAgentClient(): UnirestInstance {
     return instance
 }
 
-fun cliLoop(client: UnirestInstance) {
+private fun cliLoop(client: UnirestInstance) {
     while (true) {
         print(
             """
@@ -81,7 +145,7 @@ fun cliLoop(client: UnirestInstance) {
     }
 }
 
-fun sendMessage(client: UnirestInstance) {
+private fun sendMessage(client: UnirestInstance) {
     if (lastConnectionId == null) {
         print("To send messages you need to connect to other agent first.")
         return
@@ -93,7 +157,7 @@ fun sendMessage(client: UnirestInstance) {
         .asEmpty()
 }
 
-fun receiveInvitation(client: UnirestInstance) {
+private fun receiveInvitation(client: UnirestInstance) {
     print("Input invitation: ")
     val invitation = readLine()
     lastConnectionId = client
@@ -104,5 +168,30 @@ fun receiveInvitation(client: UnirestInstance) {
         .body
         .`object`
         .getString("connection_id")
+}
+
+private fun credentialsByReferent(
+    client: UnirestInstance,
+    presExId: String,
+): Map<String, JSONObject> {
+    val credentials = client
+        .get("/present-proof-2.0/records/$presExId/credentials")
+        .asJson().body.array
+
+    return credentials.asSequence()
+        .map { it as JSONObject }
+        .sortedBy {
+            it
+                .getJSONObject("cred_info")
+                .getJSONObject("attrs")
+                .getInt("timestamp")
+        }
+        .flatMap { row ->
+            row.getJSONArray("presentation_referents").asSequence()
+                .map { it as String }
+                .distinct()
+                .map { it to row }
+        }
+        .toMap()
 }
 

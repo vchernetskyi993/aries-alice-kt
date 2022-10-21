@@ -13,6 +13,11 @@ services:
       "--admin-api-key", "super-secret-key",
       "--webhook-url", "http://172.17.0.1:8032/webhooks",
       "--auto-accept-invites",
+      "--auto-provision",
+      "--wallet-type", "askar",
+      "--wallet-name", "alice.agent409344",
+      "--wallet-key", "alice.agent409344",
+      "--auto-store-credential",
     ]
     ports:
       - "8030:8030"
